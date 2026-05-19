@@ -1,27 +1,21 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getAuthUser } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase';
 
-// Pro-only: fetch trends from the last 30 days
+export const dynamic = 'force-dynamic';
+
 export async function GET(request) {
   try {
-    // Authenticate user
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const user = await getAuthUser(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check plan
     const admin = createAdminClient();
-    const { data: profile, error: profileError } = await admin
-      .from('profiles')
-      .select('plan')
-      .eq('id', user.id)
-      .single();
+    const { data: profile } = await admin
+      .from('profiles').select('plan').eq('id', user.id).single();
 
-    if (profileError || !profile) {
+    if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
@@ -36,7 +30,7 @@ export async function GET(request) {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const { searchParams } = new URL(request.url);
-    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const page  = Math.max(1, parseInt(searchParams.get('page')  || '1',  10));
     const limit = Math.min(100, parseInt(searchParams.get('limit') || '50', 10));
     const offset = (page - 1) * limit;
 
@@ -53,12 +47,7 @@ export async function GET(request) {
 
     return NextResponse.json({
       data: data || [],
-      pagination: {
-        page,
-        limit,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / limit),
-      },
+      pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) },
     });
   } catch (err) {
     console.error('GET /api/trends/history error:', err);

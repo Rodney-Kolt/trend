@@ -19,25 +19,36 @@ export default function DashboardPage() {
 
   const [user, setUser]             = useState(null);
   const [profile, setProfile]       = useState(null);
+  const [session, setSession]       = useState(null);
   const [videos, setVideos]         = useState([]);
   const [savedIds, setSavedIds]     = useState(new Set());
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
   const [loading, setLoading]       = useState(true);
-  const [dataSource, setDataSource] = useState(null); // 'db' | 'live'
+  const [dataSource, setDataSource] = useState(null);
   const [error, setError]           = useState(null);
   const [search, setSearch]         = useState('');
   const [sort, setSort]             = useState('trending_score');
   const [searchInput, setSearchInput] = useState('');
   const [upgradeMessage, setUpgradeMessage] = useState(false);
+  const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) { router.push('/login'); return; }
-      setUser(user);
-      fetchProfile(user.id);
-      fetchSavedIds();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login'); return; }
+      setSession(session);
+      setUser(session.user);
+      fetchProfile(session.user.id);
+      fetchSavedIds(session.access_token);
     });
+
+    // Check for upgrade success in URL
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('upgrade') === 'success') {
+      setShowUpgradeBanner(true);
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -47,15 +58,16 @@ export default function DashboardPage() {
     setProfile(data);
   }
 
-  async function fetchSavedIds() {
-    const res = await fetch('/api/saved');
+  async function fetchSavedIds(token) {
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const res = await fetch('/api/saved', { headers });
     if (res.ok) {
       const data = await res.json();
       setSavedIds(new Set((data.data || []).map((v) => v.video_id)));
     }
   }
 
-  // ── Fetch videos: DB first, live YouTube fallback ─────────────────────────
+  // ── Fetch videos ──────────────────────────────────────────────────────────
   const fetchVideos = useCallback(async (page = 1) => {
     setLoading(true);
     setError(null);
@@ -73,7 +85,7 @@ export default function DashboardPage() {
         return;
       }
 
-      // DB empty — fall back to live YouTube (page 1, no search only)
+      // DB empty — fall back to live YouTube
       if (page === 1 && !search) {
         const liveRes  = await fetch('/api/trends/live');
         const liveData = await liveRes.json();
@@ -132,14 +144,16 @@ export default function DashboardPage() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
 
         {/* Upgrade success banner */}
-        {typeof window !== 'undefined' &&
-          new URLSearchParams(window.location.search).get('upgrade') === 'success' && (
-          <div className="bg-green-900/30 border border-green-700 rounded-xl px-4 py-3 flex items-center gap-3">
-            <span className="text-2xl">🎉</span>
-            <div>
-              <p className="text-green-300 font-semibold">Welcome to Pro!</p>
-              <p className="text-green-400 text-sm">You now have unlimited saves, 30-day history, and CSV export.</p>
+        {showUpgradeBanner && (
+          <div className="bg-green-900/30 border border-green-700 rounded-xl px-4 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🎉</span>
+              <div>
+                <p className="text-green-300 font-semibold">Welcome to Pro!</p>
+                <p className="text-green-400 text-sm">You now have unlimited saves, 30-day history, and CSV export.</p>
+              </div>
             </div>
+            <button onClick={() => setShowUpgradeBanner(false)} className="text-gray-500 hover:text-gray-300 text-sm shrink-0">✕</button>
           </div>
         )}
 
@@ -262,7 +276,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Pagination (DB mode only) */}
+        {/* Pagination */}
         {!loading && pagination.totalPages > 1 && dataSource === 'db' && (
           <div className="flex items-center justify-center gap-3 pt-4">
             <button onClick={() => fetchVideos(pagination.page - 1)}

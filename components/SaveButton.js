@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createBrowserClient } from '@/lib/supabase';
 
 export default function SaveButton({ videoId, isSaved, onToggle, userPlan }) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError]     = useState(null);
   const router = useRouter();
 
   async function handleClick() {
@@ -13,10 +14,19 @@ export default function SaveButton({ videoId, isSaved, onToggle, userPlan }) {
     setError(null);
 
     try {
+      // Get session token for auth header
+      const supabase = createBrowserClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const endpoint = isSaved ? '/api/unsave-video' : '/api/save-video';
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ video_id: videoId }),
       });
 
@@ -24,7 +34,6 @@ export default function SaveButton({ videoId, isSaved, onToggle, userPlan }) {
 
       if (!res.ok) {
         if (data.limitReached) {
-          // Redirect to pricing page
           router.push('/pricing?reason=limit');
           return;
         }
@@ -34,7 +43,6 @@ export default function SaveButton({ videoId, isSaved, onToggle, userPlan }) {
       if (onToggle) onToggle(videoId, !isSaved);
     } catch (err) {
       setError(err.message);
-      // Clear error after 3 seconds
       setTimeout(() => setError(null), 3000);
     } finally {
       setLoading(false);

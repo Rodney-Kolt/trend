@@ -1,11 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { createBrowserClient } from '@/lib/supabase';
 
-/**
- * Pro-only CSV export button.
- * Calls GET /api/export/csv and triggers a browser download.
- */
 export default function CsvExportButton({ className = '' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
@@ -15,7 +12,15 @@ export default function CsvExportButton({ className = '' }) {
     setError(null);
 
     try {
-      const res = await fetch('/api/export/csv');
+      const supabase = createBrowserClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const headers = {};
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      const res = await fetch('/api/export/csv', { headers });
 
       if (res.status === 403) {
         throw new Error('CSV export is a Pro feature. Upgrade to download.');
@@ -25,7 +30,6 @@ export default function CsvExportButton({ className = '' }) {
         throw new Error(data.error || 'Export failed');
       }
 
-      // Stream the CSV as a download
       const blob     = await res.blob();
       const url      = URL.createObjectURL(blob);
       const filename = `trendspotter-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -53,18 +57,10 @@ export default function CsvExportButton({ className = '' }) {
         title="Download 30-day trend data as CSV (Pro)"
         aria-label="Export trends as CSV"
       >
-        {loading ? (
-          <>
-            <span className="animate-spin">⏳</span> Exporting…
-          </>
-        ) : (
-          <>⬇ Export CSV</>
-        )}
+        {loading ? <><span className="animate-spin">⏳</span> Exporting…</> : <>⬇ Export CSV</>}
       </button>
       {error && (
-        <p className="text-red-400 text-xs mt-1" role="alert">
-          {error}
-        </p>
+        <p className="text-red-400 text-xs mt-1" role="alert">{error}</p>
       )}
     </div>
   );

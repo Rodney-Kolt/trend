@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getAuthUser } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase';
 
 export async function POST(request) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const user = await getAuthUser(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -19,12 +17,9 @@ export async function POST(request) {
     }
 
     const admin = createAdminClient();
-
     const { error } = await admin
-      .from('saved_items')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('video_id', video_id);
+      .from('saved_items').delete()
+      .eq('user_id', user.id).eq('video_id', video_id);
 
     if (error) {
       console.error('Delete saved_items error:', error);

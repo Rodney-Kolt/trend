@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getAuthUser } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-// GET /api/saved — alias for /api/saved-videos
-export async function GET() {
+export async function GET(request) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const user = await getAuthUser(request);
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -38,6 +36,7 @@ export async function GET() {
 
     return NextResponse.json({ data: videos });
   } catch (err) {
+    console.error('GET /api/saved error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

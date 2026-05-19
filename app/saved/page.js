@@ -23,11 +23,11 @@ export default function SavedPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) { router.push('/login'); return; }
-      setUser(user);
-      fetchProfile(user.id);
-      fetchSavedVideos();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login'); return; }
+      setUser(session.user);
+      fetchProfile(session.user.id);
+      fetchSavedVideos(session.access_token);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -38,10 +38,11 @@ export default function SavedPage() {
     setProfile(data);
   }
 
-  async function fetchSavedVideos() {
+  async function fetchSavedVideos(token) {
     setLoading(true);
     try {
-      const res = await fetch('/api/saved');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch('/api/saved', { headers });
       if (res.ok) {
         const data = await res.json();
         const vids = data.data || [];
