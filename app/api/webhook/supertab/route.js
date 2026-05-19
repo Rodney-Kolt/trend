@@ -13,9 +13,10 @@ export const dynamic = 'force-dynamic';
  *   - purchase.completed_2025-04-01
  *   - onetime_offering.purchasing_completed_2025-04-01
  *
- * On a completed purchase, upgrades the matching Supabase user to Pro.
- * The Supabase user_id is read from the offering/purchase metadata field
- * (set when creating the checkout session).
+ * The supabase_user_id is read from:
+ *   1. event.data.metadata.supabase_user_id  (offering-level metadata)
+ *   2. event.data.items[0].metadata.supabase_user_id  (item-level metadata)
+ *   3. Parsed from metadata string if it's URL-encoded (Off-App Purchase flow)
  */
 export async function POST(request) {
   let rawBody;
@@ -25,10 +26,10 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Could not read body' }, { status: 400 });
   }
 
-  // ── Signature verification (Svix) ─────────────────────────────────────────
+  // ── Signature verification ─────────────────────────────────────────────────
   const isValid = await verifySupertabWebhook(rawBody, request.headers);
   if (!isValid) {
-    console.warn('Supertab webhook: invalid signature — rejecting');
+    console.warn('Supertab webhook: invalid signature');
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
@@ -40,67 +41,74 @@ export async function POST(request) {
   }
 
   const eventType = event?.type || '';
-  console.log('Supertab webhook received:', eventType);
+  console.log('Supertab webhook:', eventType);
 
-  // ── Handle purchase.completed_2025-04-01 ──────────────────────────────────
-  if (eventType === 'purchase.completed_2025-04-01' || eventType === 'purchase.completed') {
+  // ── purchase.completed ─────────────────────────────────────────────────────
+  if (
+    eventType === 'purchase.completed_2025-04-01' ||
+    eventType === 'purchase.completed'
+  ) {
     /*
-     * Payload shape:
-     * {
-     *   type: "purchase.completed_2025-04-01",
-     *   data: {
-     *     id: "purchase.xxx",
-     *     status: "completed",
-     *     metadata: { supabase_user_id: "...", user_email: "..." },
-     *     user: { id: "user.xxx", email: "...", ... },
-     *     ...
-     *   }
-     * }
+     * data.metadata may be:
+     *   - object: { supabase_user_id: "..." }
+     *   - string: "supabase_user_id=...&user_email=..." (URL-encoded from Off-App flow)
      */
-    const userId = event?.data?.metadata?.supabase_user_id;
+    const userId = extractUserId(event?.data?.metadata);
     if (!userId) {
-      console.error('purchase.completed: missing supabase_user_id in metadata', event?.data?.metadata);
-      return NextResponse.json({ error: 'Missing supabase_user_id in metadata' }, { status: 400 });
+      console.error('purchase.completed: no supabase_user_id found', event?.data?.metadata);
+      return NextResponse.json({ error: 'Missing supabase_user_id' }, { status: 400 });
     }
     await upgradeUser(userId);
   }
 
-  // ── Handle onetime_offering.purchasing_completed_2025-04-01 ───────────────
+  // ── onetime_offering.purchasing_completed ──────────────────────────────────
   else if (
     eventType === 'onetime_offering.purchasing_completed_2025-04-01' ||
     eventType === 'onetime_offering.purchasing_completed'
   ) {
-    /*
-     * Payload shape:
-     * {
-     *   type: "onetime_offering.purchasing_completed_2025-04-01",
-     *   data: {
-     *     id: "onetime_offering.xxx",
-     *     status: "purchasing_completed",
-     *     metadata: { supabase_user_id: "...", user_email: "..." },
-     *     items: [ { metadata: { ... }, purchase: { ... } } ],
-     *     ...
-     *   }
-     * }
-     */
+    // Try offering-level metadata first, then first item's metadata
     const userId =
-      event?.data?.metadata?.supabase_user_id ||
-      // Also check first item's metadata as fallback
-      event?.data?.items?.[0]?.metadata?.supabase_user_id;
+      extractUserId(event?.data?.metadata) ||
+      extractUserId(event?.data?.items?.[0]?.metadata) ||
+      extractUserId(event?.data?.items?.[0]?.purchase?.metadata);
 
     if (!userId) {
-      console.error('onetime_offering: missing supabase_user_id in metadata', event?.data?.metadata);
-      return NextResponse.json({ error: 'Missing supabase_user_id in metadata' }, { status: 400 });
+      console.error('onetime_offering: no supabase_user_id found', event?.data?.metadata);
+      return NextResponse.json({ error: 'Missing supabase_user_id' }, { status: 400 });
     }
     await upgradeUser(userId);
   }
 
   else {
-    // Unknown event type — acknowledge but don't process
     console.log('Supertab webhook: unhandled event type:', eventType);
   }
 
   return NextResponse.json({ received: true });
+}
+
+/**
+ * Extract supabase_user_id from metadata.
+ * Handles both object and URL-encoded string formats.
+ */
+function extractUserId(metadata) {
+  if (!metadata) return null;
+
+  // Object format: { supabase_user_id: "..." }
+  if (typeof metadata === 'object') {
+    return metadata.supabase_user_id || null;
+  }
+
+  // String format: "supabase_user_id=xxx&user_email=yyy" (URL-encoded)
+  if (typeof metadata === 'string') {
+    try {
+      const params = new URLSearchParams(metadata);
+      return params.get('supabase_user_id') || null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 /**
