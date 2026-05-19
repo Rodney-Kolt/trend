@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { createCheckoutSession } from '@/lib/dodo';
+import { createSupertabCheckout } from '@/lib/supertab';
 
 export async function POST() {
   try {
@@ -11,7 +11,7 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { checkoutUrl, sessionId } = await createCheckoutSession(
+    const { checkoutUrl, sessionId } = await createSupertabCheckout(
       user.email,
       user.id
     );

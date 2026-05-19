@@ -2,56 +2,25 @@
 
 import { useState, useEffect } from 'react';
 
-const DEVTOOLBOX_API = 'https://devtoolbox.co/api/ai/summarize';
-
 export default function AISummary() {
-  const [summary, setSummary] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [summary, setSummary]       = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState(null);
   const [lastFetched, setLastFetched] = useState(null);
+  const [cached, setCached]         = useState(false);
 
   async function fetchSummary() {
     setLoading(true);
     setError(null);
-
     try {
-      // Fetch top 5 trending videos
-      const trendsRes = await fetch('/api/trends?limit=5&sort=trending_score');
-      if (!trendsRes.ok) throw new Error('Failed to fetch trends');
-      const trendsData = await trendsRes.json();
+      // Call the server-side summary API (uses DevToolBox + DB, cached 1hr)
+      const res  = await fetch('/api/summary');
+      const data = await res.json();
 
-      const titles = (trendsData.data || []).map((v) => v.title).filter(Boolean);
-      if (titles.length === 0) {
-        setSummary('No trending videos found to summarize.');
-        return;
-      }
+      if (!res.ok) throw new Error(data.error || 'Failed to generate summary');
 
-      const prompt = `Summarize the following top trending YouTube video titles for a dropshipper or affiliate marketer. Identify any common themes, trending niches, or product opportunities:\n\n${titles.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
-
-      // Call DevToolBox AI summarize API (no key required)
-      const aiRes = await fetch(DEVTOOLBOX_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: prompt }),
-      });
-
-      if (!aiRes.ok) {
-        // Fallback: generate a simple summary ourselves
-        setSummary(
-          `Today's top trending topics include: ${titles.slice(0, 3).join(', ')}. These videos are gaining significant traction and may indicate emerging product opportunities.`
-        );
-        return;
-      }
-
-      const aiData = await aiRes.json();
-      const result =
-        aiData.summary ||
-        aiData.result ||
-        aiData.text ||
-        aiData.output ||
-        'Summary unavailable.';
-
-      setSummary(result);
+      setSummary(data.summary || 'No summary available.');
+      setCached(data.cached || false);
       setLastFetched(new Date());
     } catch (err) {
       setError(err.message);
@@ -60,17 +29,16 @@ export default function AISummary() {
     }
   }
 
-  // Auto-fetch on mount
-  useEffect(() => {
-    fetchSummary();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { fetchSummary(); }, []); // eslint-disable-line
 
   return (
     <div className="card border-blue-800 bg-blue-950/20">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold text-blue-300 flex items-center gap-2">
+        <h2 className="font-semibold text-blue-300 flex items-center gap-2 text-sm">
           <span>🤖</span> AI Trend Summary
+          {cached && (
+            <span className="text-blue-600 text-xs font-normal">(cached)</span>
+          )}
         </h2>
         <button
           onClick={fetchSummary}
@@ -101,7 +69,7 @@ export default function AISummary() {
 
       {lastFetched && !loading && (
         <p className="text-gray-600 text-xs mt-2">
-          Last updated: {lastFetched.toLocaleTimeString()}
+          Updated {lastFetched.toLocaleTimeString()}
         </p>
       )}
     </div>
